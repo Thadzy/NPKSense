@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Suspense } from "react";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend,
 } from "chart.js";
@@ -13,14 +13,12 @@ import PerspectiveCropper from "@/components/PerspectiveCropper";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
-// ⚠️ CHANGE IP HERE
+// ⚠️ Confirm API URL (Hugging Face)
 const API_URL = "https://thadzy-npksense.hf.space/analyze_interactive";
 
 // =========================================
-// 🎨 SUB-COMPONENTS (แก้ไข Alignment)
+// 🎨 SUB-COMPONENTS
 // =========================================
-
-// ✅ FeatureCard: เพิ่ม text-left และปรับ padding ให้ดูดีขึ้น
 function FeatureCard({ icon, title, desc }: any) {
   return (
     <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-300 text-left">
@@ -33,15 +31,12 @@ function FeatureCard({ icon, title, desc }: any) {
   )
 }
 
-// ✅ GuideStep: เพิ่ม text-left เพื่อความชัวร์
 function GuideStep({ step, title, desc }: any) {
   return (
     <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden text-left">
-      {/* Decorative Number Bg */}
       <div className="absolute -right-4 -top-4 text-[60px] font-black text-slate-50 opacity-50 select-none group-hover:text-blue-50 transition-colors">
         {step}
       </div>
-      
       <div className="relative z-10">
         <div className="flex items-center gap-3 mb-3">
           <span className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-200">
@@ -49,7 +44,6 @@ function GuideStep({ step, title, desc }: any) {
           </span>
           <h4 className="font-bold text-slate-700 text-[15px]">{title}</h4>
         </div>
-        {/* pl-11 คือเว้นซ้ายเพื่อให้ตรงกับข้อความ title (8+3 = 11 units) */}
         <p className="text-sm text-slate-500 pl-11 leading-relaxed">{desc}</p>
       </div>
     </div>
@@ -57,9 +51,9 @@ function GuideStep({ step, title, desc }: any) {
 }
 
 // =========================================
-// 🚀 MAIN COMPONENT
+// 🧩 MAIN LOGIC (Separated for Suspense)
 // =========================================
-export default function NPKSenseDashboard() {
+function DashboardContent() {
   const searchParams = useSearchParams();
 
   // --- STATE ---
@@ -162,7 +156,7 @@ export default function NPKSenseDashboard() {
       }
     } catch (err) {
       console.error(err);
-      alert("Backend connection failed.");
+      alert("Backend connection failed. Please check Hugging Face status.");
     } finally {
       setLoading(false);
     }
@@ -220,21 +214,16 @@ export default function NPKSenseDashboard() {
       {/* 🔵 HERO SECTION */}
       <section className="relative min-h-[90vh] flex flex-col items-center justify-center px-4 overflow-hidden py-20">
         
-        {/* --- ✨ BACKGROUND LAYER (Z-0) --- */}
+        {/* --- ✨ BACKGROUND LAYER --- */}
         <div className="absolute inset-0 w-full h-full pointer-events-none">
-            {/* White Base */}
             <div className="absolute inset-0 bg-white"></div>
-
-            {/* Aurora Blobs */}
             <div className="absolute -top-[10%] -right-[10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-b from-cyan-100 via-blue-200 to-transparent opacity-70 blur-[80px]"></div>
             <div className="absolute top-[0%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-transparent opacity-70 blur-[100px]"></div>
             <div className="absolute -bottom-[20%] left-[20%] w-[60vw] h-[60vw] rounded-full bg-blue-50 opacity-80 blur-[120px]"></div>
-            
-            {/* Texture */}
             <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.02]"></div>
         </div>
 
-        {/* --- 📝 CONTENT LAYER (Z-10) --- */}
+        {/* --- 📝 CONTENT LAYER --- */}
         <div className="relative z-10 text-center max-w-5xl mx-auto space-y-10 animate-fade-in-up">
           
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border border-blue-100 shadow-sm text-sm font-semibold text-blue-700 mb-4">
@@ -294,7 +283,7 @@ export default function NPKSenseDashboard() {
           </div>
         </div>
         
-        {/* ✅ Scroll Indicator: ขยับลงมา (bottom-10 -> bottom-4) */}
+        {/* Scroll Indicator */}
         <div className="absolute bottom-4 animate-bounce cursor-pointer text-slate-400 hover:text-blue-600 transition-colors z-20" onClick={scrollToAnalyzer}>
           <ArrowDown size={32} />
         </div>
@@ -341,5 +330,20 @@ export default function NPKSenseDashboard() {
         </div>
       </div>
     </div>
+  );
+}
+
+// =========================================
+// 🚀 EXPORT (Wrapper)
+// =========================================
+export default function NPKSenseDashboard() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }

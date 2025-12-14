@@ -1,326 +1,246 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import {
-  Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend,
-} from "chart.js";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, CheckCircle2, Zap, Microscope, Calculator as CalcIcon } from "lucide-react"; 
-import ControlPanel from "@/components/ControlPanel";
-import ImagePreview from "@/components/ImagePreview";
-import StatCard from "@/components/StatCard";
-import PerspectiveCropper from "@/components/PerspectiveCropper";
+import { ArrowRight, Beaker, AlertTriangle, CheckCircle2, FlaskConical, Scale } from "lucide-react";
+import Link from "next/link";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
+// Constants
+const MATERIALS = {
+  UREA: { name: 'Urea', sub: '46-0-0', n: 46, p: 0, k: 0, color: 'bg-slate-500', text: 'text-slate-600' },
+  DAP:  { name: 'DAP',  sub: '18-46-0', n: 18, p: 46, k: 0, color: 'bg-emerald-500', text: 'text-emerald-600' },
+  MOP:  { name: 'MOP',  sub: '0-0-60',  n: 0, p: 0, k: 60, color: 'bg-rose-500', text: 'text-rose-600' },
+  FILLER: { name: 'Filler', sub: 'Inert', n: 0, p: 0, k: 0, color: 'bg-amber-400', text: 'text-amber-600' }
+};
 
-// ⚠️ CHANGE IP HERE
-const API_URL = "http://127.0.0.1:8000/analyze_interactive";
-
-export default function NPKSenseDashboard() {
+// =========================================
+// 🧩 ส่วนไส้ใน (Logic การคำนวณ)
+// =========================================
+function CalculatorContent() {
   const searchParams = useSearchParams();
 
-  // --- STATE ---
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [originalImage, setOriginalImage] = useState<string | null>(null);
-  const [processedImage, setProcessedImage] = useState<string | null>(null);
-  const [croppedRawImage, setCroppedRawImage] = useState<string | null>(null);
-  const [currentDisplayImage, setCurrentDisplayImage] = useState<string | null>(null);
-  
-  const [isCropping, setIsCropping] = useState(false); 
-  const [lastCropPoints, setLastCropPoints] = useState<{x:number, y:number}[] | null>(null);
-
-  const [threshold, setThreshold] = useState(35);
+  // State
+  const [target, setTarget] = useState({ n: 15, p: 15, k: 15 });
   const [totalWeight, setTotalWeight] = useState(100);
-  const [targets, setTargets] = useState({ N: 15, P: 15, K: 15, Filler: 55 });
-  const [massScores, setMassScores] = useState({ N: 0, P: 0, K: 0, Filler: 0 });
-  const [histData, setHistData] = useState<number[]>(Array(256).fill(0));
-  const [autoThreshold, setAutoThreshold] = useState(35);
-  
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  // Effect: อ่านค่าจาก URL (ถ้ามี) ตอนโหลดหน้าเว็บครั้งแรก
   useEffect(() => {
     const nParam = searchParams.get('n');
     const pParam = searchParams.get('p');
     const kParam = searchParams.get('k');
     const wParam = searchParams.get('weight');
 
-    if (nParam && pParam && kParam) {
-      const n = parseFloat(nParam);
-      const p = parseFloat(pParam);
-      const k = parseFloat(kParam);
-      const w = parseFloat(wParam || '100');
-      const filler = Math.max(0, 100 - (n + p + k));
-      setTargets({ N: n, P: p, K: k, Filler: filler });
-      setTotalWeight(w);
-      setTimeout(scrollToAnalyzer, 500);
+    if (nParam || pParam || kParam) {
+      setTarget({
+        n: parseFloat(nParam || '0'),
+        p: parseFloat(pParam || '0'),
+        k: parseFloat(kParam || '0')
+      });
+    }
+    if (wParam) {
+      setTotalWeight(parseFloat(wParam));
     }
   }, [searchParams]);
 
-  // --- HANDLERS ---
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      const reader = new FileReader();
-      reader.onload = (ev) => { 
-        if (ev.target?.result) {
-          const imgUrl = ev.target.result as string;
-          setOriginalImage(imgUrl);
-          setIsCropping(true); 
-          setProcessedImage(null);
-          setCroppedRawImage(null);
-          setCurrentDisplayImage(null);
-          setLastCropPoints(null);
-        }
-      };
-      reader.readAsDataURL(selectedFile);
-      e.target.value = "";
+  // Logic การคำนวณสูตรปุ๋ย
+  const calculateRecipe = () => {
+    setError(null);
+    const { n, p, k } = target;
+
+    // 1. หา % DAP จาก P
+    const pct_dap = p > 0 ? (p / MATERIALS.DAP.p) * 100 : 0;
+    
+    // 2. N Credit จาก DAP
+    const n_from_dap = (pct_dap * MATERIALS.DAP.n) / 100;
+    
+    // 3. หา % Urea จาก N ที่เหลือ
+    const required_n = n - n_from_dap;
+    
+    if (required_n < -0.01) {
+      setResult(null);
+      setError(`Impossible: DAP provides too much N (${n_from_dap.toFixed(1)}%) for this target.`);
+      return;
     }
-  };
+    
+    const pct_urea = required_n > 0 ? (required_n / MATERIALS.UREA.n) * 100 : 0;
 
-  const handleCropConfirm = (points: {x:number, y:number}[]) => {
-      setIsCropping(false);
-      setLastCropPoints(points);
-      if (file) {
-          analyzeImage(file, threshold, true, points);
-          scrollToAnalyzer();
-      }
-  };
+    // 4. หา % MOP จาก K
+    const pct_mop = k > 0 ? (k / MATERIALS.MOP.k) * 100 : 0;
 
-  const analyzeImage = async (selectedFile: File, threshVal: number, isFirstLoad = false, points: {x:number, y:number}[] | null = null) => {
-    setLoading(true);
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-    formData.append("threshold", threshVal.toString());
+    // 5. หา % Filler
+    const current_pct = pct_dap + pct_urea + pct_mop;
+    const pct_filler = 100 - current_pct;
 
-    const pointsToSend = points || lastCropPoints;
-    if (pointsToSend) {
-        formData.append("points", JSON.stringify(pointsToSend));
+    if (pct_filler < -0.1) {
+      setResult(null);
+      setError(`Over concentration! Total raw materials exceed 100% (${current_pct.toFixed(1)}%).`);
+      return;
     }
 
-    try {
-      const res = await fetch(API_URL, { method: "POST", body: formData });
-      if (!res.ok) throw new Error("API Error");
-      const data = await res.json();
+    // --- แปลง % เป็นน้ำหนักจริงตาม Total Weight ---
+    const factor = totalWeight / 100;
 
-      const procImg = `data:image/jpeg;base64,${data.image_b64}`;
-      const rawCrop = `data:image/jpeg;base64,${data.raw_cropped_b64}`;
-
-      setProcessedImage(procImg);
-      setCroppedRawImage(rawCrop);
-      setCurrentDisplayImage(procImg);
-      setMassScores(data.areas);
-
-      if (isFirstLoad && data.histogram) {
-        setHistData(data.histogram);
-        setAutoThreshold(data.auto_threshold);
-        setThreshold(data.auto_threshold);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Backend connection failed.");
-    } finally {
-      setLoading(false);
-    }
+    setResult({
+      urea: pct_urea * factor,
+      dap: pct_dap * factor,
+      mop: pct_mop * factor,
+      filler: Math.max(0, pct_filler) * factor,
+      total: totalWeight
+    });
   };
 
-  const handleSliderChange = (val: number) => {
-    setThreshold(val);
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => { 
-        if (file) analyzeImage(file, val, false, lastCropPoints); 
-    }, 300);
-  };
-
-  const scrollToAnalyzer = () => {
-    const section = document.getElementById('analyzer-section');
-    if (section) section.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const totalScore = Object.values(massScores).reduce((a, b) => a + b, 0);
-  const factor = totalScore > 0 ? (totalWeight / totalScore) : 0;
-  const finalWeights = {
-    N: massScores.N * factor,
-    P: massScores.P * factor,
-    K: massScores.K * factor,
-    Filler: massScores.Filler * factor
-  };
-
-  const histChartData = {
-    labels: Array.from({ length: 256 }, (_, i) => i),
-    datasets: [{
-      label: 'Count', data: histData,
-      backgroundColor: (ctx: any) => ctx.dataIndex <= threshold ? '#94a3b8' : '#facc15',
-      barPercentage: 1.0, categoryPercentage: 1.0,
-    }]
-  };
-  const pieChartData = {
-    labels: ['N', 'Filler', 'P', 'K'],
-    datasets: [{
-      data: [finalWeights.N, finalWeights.Filler, finalWeights.P, finalWeights.K],
-      backgroundColor: ['#94a3b8', '#facc15', '#10b981', '#ef4444'], borderWidth: 0,
-    }]
-  };
+  // Auto calculate when inputs change
+  useEffect(() => {
+    calculateRecipe();
+  }, [target, totalWeight]);
 
   return (
-    <div className="bg-slate-50 font-sans selection:bg-blue-100">
-      
-      {isCropping && originalImage && (
-        <PerspectiveCropper 
-            imageSrc={originalImage} 
-            onConfirm={handleCropConfirm} 
-            onCancel={() => { setIsCropping(false); setFile(null); }} 
-        />
-      )}
-      
-      {/* 🔵 HERO SECTION */}
-      <section className="relative min-h-[90vh] flex flex-col items-center justify-center px-4 overflow-hidden">
+    <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
+      <div className="max-w-4xl mx-auto">
         
-        {/* --- ✨ BACKGROUND LAYER (Aurora) --- */}
-        <div className="absolute inset-0 w-full h-full">
-            {/* White Base */}
-            <div className="absolute inset-0 bg-white"></div>
-
-            {/* Blob 1: Blue/Cyan (Top Right) */}
-            <div className="absolute -top-[10%] -right-[10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-b from-cyan-200 via-blue-300 to-transparent opacity-60 blur-[80px]"></div>
-            
-            {/* Blob 2: Purple/Indigo (Top Left) */}
-            <div className="absolute top-[0%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-transparent opacity-50 blur-[100px]"></div>
-            
-            {/* Blob 3: Soft Blue (Bottom) */}
-            <div className="absolute -bottom-[20%] left-[20%] w-[60vw] h-[60vw] rounded-full bg-blue-100 opacity-60 blur-[120px]"></div>
-            
-            {/* Glass Overlay */}
-            <div className="absolute inset-0 bg-white/30 backdrop-blur-[2px]"></div>
+        {/* Header */}
+        <div className="text-center mb-10">
+          <Link href="/" className="inline-block mb-4 text-sm font-bold text-slate-400 hover:text-blue-600 transition-colors">
+            ← Back to Analyzer
+          </Link>
+          <h1 className="text-4xl font-black text-slate-800 mb-2">Fertilizer <span className="text-blue-600">Calculator</span></h1>
+          <p className="text-slate-500">Reverse engineering recipe from N-P-K target</p>
         </div>
 
-        {/* --- 📝 CONTENT LAYER --- */}
-        <div className="relative z-10 text-center max-w-4xl mx-auto space-y-8 animate-fade-in-up">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 backdrop-blur-md border border-blue-100 shadow-sm text-sm font-semibold text-blue-700 mb-4">
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
-            </span>
-            AI-Powered Fertilizer Analysis 2.0
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          
+          {/* INPUT PANEL */}
+          <div className="md:col-span-5 space-y-6">
+            <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -z-10 opacity-50"></div>
+              
+              {/* --- 1. Total Weight Input --- */}
+              <div className="mb-8">
+                 <h2 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+                  <Scale size={20} className="text-slate-500" /> Total Weight
+                </h2>
+                <div className="flex items-center px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500 transition-all">
+                  <input 
+                    type="number" 
+                    value={totalWeight}
+                    onChange={(e) => setTotalWeight(parseFloat(e.target.value) || 0)}
+                    className="w-full bg-transparent font-black text-xl text-slate-800 outline-none"
+                  />
+                  <span className="text-xs font-bold text-slate-400 uppercase">KG</span>
+                </div>
+              </div>
 
-          <h1 className="text-5xl md:text-7xl font-black text-slate-900 tracking-tight leading-tight drop-shadow-sm">
-            Precision Farming <br/>
-            Starts with <span className="text-blue-600">Perfect NPK.</span>
-          </h1>
+              {/* --- 2. Formula Input --- */}
+              <h2 className="text-lg font-bold text-slate-700 mb-6 flex items-center gap-2">
+                <FlaskConical size={20} className="text-blue-500" /> Target Formula
+              </h2>
 
-          <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed font-medium">
-            Stop guessing. Use computer vision and physics engine to analyze fertilizer composition instantly. 
-            Calibrate your mix with scientific accuracy.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-            <button 
-              onClick={scrollToAnalyzer}
-              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2 text-lg"
-            >
-              <Microscope size={24} /> Start Analyzing
-            </button>
-            <a 
-              href="/calculator"
-              className="px-8 py-4 bg-white/80 hover:bg-white text-slate-700 border border-slate-200 font-bold rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2 text-lg shadow-sm backdrop-blur-sm"
-            >
-              <CalcIcon size={24} className="text-slate-500" /> Calculator
-            </a>
-          </div>
-
-          <div className="pt-12 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-            <FeatureCard icon={<Zap className="text-blue-600" />} title="Instant AI Analysis" desc="Deep learning model detects N, P, K particles in milliseconds." />
-            <FeatureCard icon={<CheckCircle2 className="text-emerald-600" />} title="Physics Engine" desc="Calculates weight based on volume & density, not just area." />
-            <FeatureCard icon={<CalcIcon className="text-indigo-600" />} title="Reverse Recipe" desc="Input your target formula, we calculate the exact mixing ratio." />
-          </div>
-
-          {/* ✅ How it works Section */}
-          <div className="pt-16 border-t border-slate-200/50 mt-16 w-full">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">How to take a perfect photo</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-               <GuideStep step="1" title="Solid Background" desc="Use plain paper (A4). Avoid patterns." />
-               <GuideStep step="2" title="Spread Evenly" desc="Don't pile up. Single layer only." />
-               <GuideStep step="3" title="Good Lighting" desc="Bright light, no harsh shadows." />
-               <GuideStep step="4" title="Top-Down View" desc="Hold camera parallel to the surface." />
-            </div>
-          </div>
-        </div>
-        
-        {/* Scroll Indicator */}
-        <div className="absolute bottom-10 animate-bounce cursor-pointer text-slate-400 hover:text-blue-600 transition-colors z-20" onClick={scrollToAnalyzer}>
-          <ArrowDown size={32} />
-        </div>
-      </section>
-
-      {/* 🛠️ ANALYZER SECTION */}
-      <div id="analyzer-section" className="min-h-screen py-20 bg-white border-t border-slate-100 relative z-20 shadow-2xl shadow-slate-200/50">
-        <div className="max-w-7xl mx-auto px-4 lg:px-8">
-           <div className="mb-12 text-center">
-              <h2 className="text-3xl font-black text-slate-900">Analysis Dashboard</h2>
-              <p className="text-slate-500">Upload an image or check your current mix</p>
-           </div>
-           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-4 space-y-6">
-              <ControlPanel 
-                file={file} threshold={threshold} totalWeight={totalWeight} targets={targets}
-                histChartData={histChartData} pieChartData={pieChartData}
-                onFileUpload={handleFileUpload}
-                onSliderChange={handleSliderChange}
-                onAutoClick={() => { setThreshold(autoThreshold); if (file) analyzeImage(file, autoThreshold, false); }}
-                onWeightChange={setTotalWeight}
-                onTargetChange={(key, val) => setTargets({...targets, [key]: val})}
-              />
-            </div>
-            <div className="lg:col-span-8 space-y-6 flex flex-col h-full">
-              <ImagePreview 
-                loading={loading}
-                processedImage={processedImage}
-                currentDisplayImage={currentDisplayImage}
-                onToggleStart={() => { 
-                    if(croppedRawImage) setCurrentDisplayImage(croppedRawImage);
-                    else if(originalImage) setCurrentDisplayImage(originalImage); 
-                }}
-                onToggleEnd={() => { if(processedImage) setCurrentDisplayImage(processedImage); }}
-              />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label="N (Urea)" subLabel="46-0-0" value={finalWeights.N} total={totalWeight} target={targets.N} color="text-slate-600" barColor="bg-slate-400" />
-                <StatCard label="P (DAP)" subLabel="18-46-0" value={finalWeights.P} total={totalWeight} target={targets.P} color="text-emerald-600" barColor="bg-emerald-500" />
-                <StatCard label="K (Potash)" subLabel="0-0-60" value={finalWeights.K} total={totalWeight} target={targets.K} color="text-rose-600" barColor="bg-rose-500" />
-                <StatCard label="Filler" subLabel="Inert" value={finalWeights.Filler} total={totalWeight} target={targets.Filler} color="text-amber-600" barColor="bg-amber-400" />
+              <div className="space-y-4">
+                {[
+                  { label: 'Nitrogen (N)', key: 'n', color: 'text-slate-600', bg: 'bg-slate-50' },
+                  { label: 'Phosphorus (P)', key: 'p', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                  { label: 'Potassium (K)', key: 'k', color: 'text-rose-600', bg: 'bg-rose-50' }
+                ].map((item) => (
+                  <div key={item.key}>
+                    <label className={`text-xs font-bold uppercase ${item.color} mb-1 block`}>{item.label}</label>
+                    <div className={`flex items-center px-4 py-3 rounded-xl border border-slate-200 ${item.bg} focus-within:ring-2 focus-within:ring-blue-500 transition-all`}>
+                      <input 
+                        type="number" 
+                        value={target[item.key as keyof typeof target]}
+                        onChange={(e) => setTarget({...target, [item.key]: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-transparent font-black text-xl text-slate-800 outline-none"
+                      />
+                      <span className="text-xs font-bold text-slate-400">%</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
+
+          {/* RESULT PANEL */}
+          <div className="md:col-span-7">
+            {error ? (
+              <div className="h-full flex items-center justify-center p-8 bg-rose-50 rounded-3xl border border-rose-100 text-center">
+                <div>
+                  <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertTriangle size={32} />
+                  </div>
+                  <h3 className="text-rose-700 font-bold text-lg mb-2">Calculation Error</h3>
+                  <p className="text-rose-600/80 text-sm">{error}</p>
+                </div>
+              </div>
+            ) : result ? (
+              <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-white h-full flex flex-col">
+                <h2 className="text-lg font-bold text-slate-700 mb-6 flex items-center gap-2">
+                  <Beaker size={20} className="text-purple-500" /> 
+                  Mixing Recipe <span className="text-slate-400 text-sm font-normal ml-auto">(Total: {result.total}kg)</span>
+                </h2>
+
+                <div className="space-y-4 flex-1">
+                  <RecipeRow label={MATERIALS.UREA.name} sub={MATERIALS.UREA.sub} value={result.urea} total={totalWeight} color="bg-slate-500" />
+                  <RecipeRow label={MATERIALS.DAP.name} sub={MATERIALS.DAP.sub} value={result.dap} total={totalWeight} color="bg-emerald-500" />
+                  <RecipeRow label={MATERIALS.MOP.name} sub={MATERIALS.MOP.sub} value={result.mop} total={totalWeight} color="bg-rose-500" />
+                  <RecipeRow label={MATERIALS.FILLER.name} sub={MATERIALS.FILLER.sub} value={result.filler} total={totalWeight} color="bg-amber-400" />
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-slate-100">
+                  <Link href={`/?n=${target.n}&p=${target.p}&k=${target.k}&weight=${totalWeight}`} className="group flex items-center justify-between bg-slate-900 text-white p-4 rounded-xl hover:bg-blue-600 transition-all shadow-lg shadow-slate-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
+                        <CheckCircle2 size={20} />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-xs font-bold text-white/60 uppercase">Ready to check?</div>
+                        <div className="font-bold">Go to Analyzer with these values</div>
+                      </div>
+                    </div>
+                    <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
         </div>
       </div>
     </div>
   );
 }
 
-// 👇 SUB-COMPONENTS
-function FeatureCard({ icon, title, desc }: any) {
+function RecipeRow({ label, sub, value, total, color }: any) {
+  const percentBar = total > 0 ? (value / total) * 100 : 0;
+
   return (
-    <div className="bg-white/60 backdrop-blur-sm p-4 rounded-xl border border-blue-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all">
-      <div className="mb-3 bg-blue-50 w-10 h-10 rounded-lg flex items-center justify-center">
-        {icon}
+    <div className="flex items-center gap-4 group">
+      <div className={`w-2 h-12 rounded-full ${color} opacity-20 group-hover:opacity-100 transition-all`}></div>
+      <div className="flex-1">
+        <div className="flex justify-between items-baseline mb-1">
+          <span className="font-bold text-slate-700">{label} <span className="text-xs text-slate-400 font-normal ml-1">{sub}</span></span>
+          <span className="font-black text-xl text-slate-800">{value.toFixed(2)} <span className="text-xs font-bold text-slate-400">kg</span></span>
+        </div>
+        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+          <div className={`h-full ${color}`} style={{ width: `${Math.min(percentBar, 100)}%` }}></div>
+        </div>
       </div>
-      <h3 className="font-bold text-slate-800 mb-1">{title}</h3>
-      <p className="text-xs text-slate-500 leading-relaxed">{desc}</p>
     </div>
-  )
+  );
 }
 
-function GuideStep({ step, title, desc }: any) {
+// =========================================
+// 🚀 EXPORT (ตัวห่อหลัก) เพื่อแก้ Vercel Error
+// =========================================
+export default function CalculatorPage() {
   return (
-    <div className="text-left space-y-2 group bg-white/40 p-3 rounded-lg hover:bg-white/60 transition-colors">
-      <div className="flex items-center gap-2">
-        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition-colors">
-          {step}
-        </span>
-        <h4 className="font-bold text-slate-700 text-sm">{title}</h4>
+    <Suspense fallback={
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+        <p className="text-slate-500 font-medium">Loading Calculator...</p>
       </div>
-      <p className="text-xs text-slate-500 pl-8 leading-relaxed">{desc}</p>
-    </div>
-  )
+    }>
+      <CalculatorContent />
+    </Suspense>
+  );
 }
