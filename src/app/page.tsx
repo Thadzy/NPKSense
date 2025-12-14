@@ -14,7 +14,7 @@ import PerspectiveCropper from "@/components/PerspectiveCropper";
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
 // ⚠️ CHANGE IP HERE
-const API_URL = "http://127.0.0.1:8000/analyze_interactive";
+const API_URL = "https://thadzy-npksense.hf.space/analyze_interactive";
 
 // =========================================
 // 🎨 SUB-COMPONENTS (แก้ไข Alignment)
