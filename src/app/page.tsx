@@ -15,7 +15,7 @@ import PerspectiveCropper from "@/components/PerspectiveCropper";
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
 // ✅ Confirm API URL (Localhost) - ถูกต้องแล้วครับ
-const API_URL = "http://localhost:8000/analyze_interactive";
+const API_URL = "https://thadzy-npksense.hf.space/analyze_interactive";
 
 // =========================================
 // 🎨 SUB-COMPONENTS (ใส่ไว้ในไฟล์เดียวกันได้เลย เพื่อความสะดวก)
