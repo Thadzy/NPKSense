@@ -5,8 +5,7 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend,
 } from "chart.js";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, CheckCircle2, Zap, Microscope, Calculator as CalcIcon } from "lucide-react"; 
-// ตรวจสอบว่า Component เหล่านี้มีอยู่จริงในโฟลเดอร์ components
+import { CheckCircle2, Zap, Microscope, Calculator as CalcIcon } from "lucide-react"; 
 import ControlPanel from "@/components/ControlPanel";
 import ImagePreview from "@/components/ImagePreview";
 import StatCard from "@/components/StatCard";
@@ -14,46 +13,8 @@ import PerspectiveCropper from "@/components/PerspectiveCropper";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
-// ✅ Confirm API URL (Localhost) - ถูกต้องแล้วครับ
 const API_URL = "https://thadzy-npksense.hf.space/analyze_interactive";
 
-// =========================================
-// 🎨 SUB-COMPONENTS (ใส่ไว้ในไฟล์เดียวกันได้เลย เพื่อความสะดวก)
-// =========================================
-function FeatureCard({ icon, title, desc }: any) {
-  return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-300 text-left">
-      <div className="mb-4 bg-blue-50 w-12 h-12 rounded-xl flex items-center justify-center text-blue-600 shadow-sm">
-        {icon}
-      </div>
-      <h3 className="font-bold text-slate-800 text-lg mb-3">{title}</h3>
-      <p className="text-slate-500 text-sm leading-relaxed">{desc}</p>
-    </div>
-  )
-}
-
-function GuideStep({ step, title, desc }: any) {
-  return (
-    <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden text-left">
-      <div className="absolute -right-4 -top-4 text-[60px] font-black text-slate-50 opacity-50 select-none group-hover:text-blue-50 transition-colors">
-        {step}
-      </div>
-      <div className="relative z-10">
-        <div className="flex items-center gap-3 mb-3">
-          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-200">
-            {step}
-          </span>
-          <h4 className="font-bold text-slate-700 text-[15px]">{title}</h4>
-        </div>
-        <p className="text-sm text-slate-500 pl-11 leading-relaxed">{desc}</p>
-      </div>
-    </div>
-  )
-}
-
-// =========================================
-// 🧩 MAIN LOGIC
-// =========================================
 function DashboardContent() {
   const searchParams = useSearchParams();
 
@@ -70,33 +31,60 @@ function DashboardContent() {
 
   const [threshold, setThreshold] = useState(35);
   const [totalWeight, setTotalWeight] = useState(100);
+  
+  // Targets state
   const [targets, setTargets] = useState({ N: 15, P: 15, K: 15, Filler: 55 });
+  
   const [massScores, setMassScores] = useState({ N: 0, P: 0, K: 0, Filler: 0 });
   const [histData, setHistData] = useState<number[]>(Array(256).fill(0));
   const [autoThreshold, setAutoThreshold] = useState(35);
   
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Load Params from URL (Optional)
+  // Load Params from URL
   useEffect(() => {
     const nParam = searchParams.get('n');
     const pParam = searchParams.get('p');
     const kParam = searchParams.get('k');
     const wParam = searchParams.get('weight');
 
-    if (nParam && pParam && kParam) {
-      const n = parseFloat(nParam);
-      const p = parseFloat(pParam);
-      const k = parseFloat(kParam);
+    if (nParam || pParam || kParam) {
+      const n = parseFloat(nParam || '0');
+      const p = parseFloat(pParam || '0');
+      const k = parseFloat(kParam || '0');
       const w = parseFloat(wParam || '100');
       const filler = Math.max(0, 100 - (n + p + k));
+      
       setTargets({ N: n, P: p, K: k, Filler: filler });
       setTotalWeight(w);
       setTimeout(scrollToAnalyzer, 500);
     }
   }, [searchParams]);
 
-  // --- HANDLERS ---
+  // --- 🛠️ UPDATED HANDLER: Flexible Filler ---
+  const handleTargetChange = (key: string, value: number) => {
+    const newVal = isNaN(value) ? 0 : value;
+
+    if (key === 'Filler') {
+      // ✅ ถ้าแก้ Filler ให้รับค่านั้นเลย (Manual Override)
+      setTargets({ ...targets, Filler: newVal });
+    } else {
+      // ✅ ถ้าแก้ N, P, K ให้คำนวณ Filler อัตโนมัติ (Auto Calc)
+      const nextTargets = { ...targets, [key]: newVal };
+      const totalNutrients = (key === 'N' ? newVal : targets.N) + 
+                             (key === 'P' ? newVal : targets.P) + 
+                             (key === 'K' ? newVal : targets.K);
+                             
+      const newFiller = Math.max(0, 100 - totalNutrients);
+
+      setTargets({
+        ...nextTargets,
+        Filler: newFiller
+      });
+    }
+  };
+
+  // --- OTHER HANDLERS ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
@@ -106,7 +94,7 @@ function DashboardContent() {
         if (ev.target?.result) {
           const imgUrl = ev.target.result as string;
           setOriginalImage(imgUrl);
-          setIsCropping(true); // Start cropping flow immediately
+          setIsCropping(true); 
           setProcessedImage(null);
           setCroppedRawImage(null);
           setCurrentDisplayImage(null);
@@ -122,7 +110,6 @@ function DashboardContent() {
       setIsCropping(false);
       setLastCropPoints(points);
       if (file) {
-          // Send to API with crop points
           analyzeImage(file, threshold, true, points);
           scrollToAnalyzer();
       }
@@ -150,7 +137,7 @@ function DashboardContent() {
       setProcessedImage(procImg);
       if(rawCrop) setCroppedRawImage(rawCrop);
       setCurrentDisplayImage(procImg);
-      setMassScores(data.areas); // Values from backend (Weighted Nutrient Mass)
+      setMassScores(data.areas); 
 
       if (isFirstLoad && data.histogram) {
         setHistData(data.histogram);
@@ -159,7 +146,7 @@ function DashboardContent() {
       }
     } catch (err) {
       console.error(err);
-      alert("Backend connection failed. Please check if Python server is running.");
+      alert("Backend connection failed.");
     } finally {
       setLoading(false);
     }
@@ -178,9 +165,7 @@ function DashboardContent() {
     if (section) section.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // --- CALCULATION DISPLAY LOGIC ---
   const totalScore = Object.values(massScores).reduce((a, b) => a + b, 0);
-  // Scale score to match Total Weight input
   const factor = totalScore > 0 ? (totalWeight / totalScore) : 0;
   
   const finalWeights = {
@@ -209,7 +194,6 @@ function DashboardContent() {
   return (
     <div className="bg-white font-sans selection:bg-blue-100">
       
-      {/* CROPPER MODAL */}
       {isCropping && originalImage && (
         <PerspectiveCropper 
             imageSrc={originalImage} 
@@ -218,10 +202,7 @@ function DashboardContent() {
         />
       )}
       
-      {/* 🔵 HERO SECTION */}
       <section className="relative min-h-[90vh] flex flex-col items-center justify-center px-4 overflow-hidden py-20">
-        
-        {/* BACKGROUND */}
         <div className="absolute inset-0 w-full h-full pointer-events-none">
             <div className="absolute inset-0 bg-white"></div>
             <div className="absolute -top-[10%] -right-[10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-b from-cyan-100 via-blue-200 to-transparent opacity-70 blur-[80px]"></div>
@@ -229,7 +210,6 @@ function DashboardContent() {
             <div className="absolute -bottom-[20%] left-[20%] w-[60vw] h-[60vw] rounded-full bg-blue-50 opacity-80 blur-[120px]"></div>
         </div>
 
-        {/* HERO CONTENT */}
         <div className="relative z-10 text-center max-w-5xl mx-auto space-y-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border border-blue-100 shadow-sm text-sm font-semibold text-blue-700 mb-4">
             <span className="flex h-2 w-2 relative">
@@ -250,7 +230,6 @@ function DashboardContent() {
             </button>
           </div>
 
-          {/* Feature Cards */}
           <div className="pt-16 grid grid-cols-1 md:grid-cols-3 gap-6">
             <FeatureCard icon={<Zap className="w-6 h-6" />} title="Instant AI Analysis" desc="Detects N, P, K particles in milliseconds." />
             <FeatureCard icon={<CheckCircle2 className="w-6 h-6 text-emerald-500" />} title="Physics Engine" desc="Calculates weight based on volume & density." />
@@ -259,26 +238,27 @@ function DashboardContent() {
         </div>
       </section>
 
-      {/* 🛠️ ANALYZER SECTION */}
       <div id="analyzer-section" className="min-h-screen py-20 bg-white border-t border-slate-100 relative z-20">
         <div className="max-w-7xl mx-auto px-4 lg:px-8">
            <div className="mb-12 text-center">
               <h2 className="text-3xl font-black text-slate-900">Analysis Dashboard</h2>
            </div>
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* LEFT CONTROL */}
             <div className="lg:col-span-4 space-y-6">
               <ControlPanel 
-                file={file} threshold={threshold} totalWeight={totalWeight} targets={targets}
-                histChartData={histChartData} pieChartData={pieChartData}
+                file={file} 
+                threshold={threshold} 
+                totalWeight={totalWeight} 
+                targets={targets}
+                histChartData={histChartData} 
+                pieChartData={pieChartData}
                 onFileUpload={handleFileUpload}
                 onSliderChange={handleSliderChange}
                 onAutoClick={() => { setThreshold(autoThreshold); if (file) analyzeImage(file, autoThreshold, false); }}
                 onWeightChange={setTotalWeight}
-                onTargetChange={(key: any, val: any) => setTargets({...targets, [key]: val})}
+                onTargetChange={handleTargetChange}
               />
             </div>
-            {/* RIGHT DISPLAY */}
             <div className="lg:col-span-8 space-y-6 flex flex-col h-full">
               <ImagePreview 
                 loading={loading}
@@ -304,9 +284,18 @@ function DashboardContent() {
   );
 }
 
-// =========================================
-// 🚀 EXPORT (Wrapper for Suspense)
-// =========================================
+function FeatureCard({ icon, title, desc }: any) {
+  return (
+    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-left">
+      <div className="mb-4 bg-blue-50 w-12 h-12 rounded-xl flex items-center justify-center text-blue-600">
+        {icon}
+      </div>
+      <h3 className="font-bold text-slate-800 text-lg mb-3">{title}</h3>
+      <p className="text-slate-500 text-sm">{desc}</p>
+    </div>
+  )
+}
+
 export default function NPKSenseDashboard() {
   return (
     <Suspense fallback={

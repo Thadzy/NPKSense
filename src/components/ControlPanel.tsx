@@ -4,7 +4,6 @@ import { Settings2, Eye, Wand2, Scale, FlaskConical } from "lucide-react";
 import { Bar, Doughnut } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 
-// Register ChartJS parts
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 interface ControlPanelProps {
@@ -28,14 +27,13 @@ export default function ControlPanel({
 }: ControlPanelProps) {
   
   const legendItems = [
-    { label: 'N', color: '#94a3b8' },      // Gray
-    { label: 'P', color: '#10b981' },      // Emerald
-    { label: 'K', color: '#ef4444' },      // Red
-    { label: 'Filler', color: '#facc15' }, // Yellow
+    { label: 'N', color: '#94a3b8' },      
+    { label: 'P', color: '#10b981' },      
+    { label: 'K', color: '#ef4444' },      
+    { label: 'Filler', color: '#facc15' }, 
   ];
 
   return (
-    // ✅ เอา h-full ออก เพื่อให้การ์ดหดสั้นเท่าเนื้อหา (ถ้าอยากให้ยืดเต็มก็ใส่ h-full กลับไปได้)
     <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-white p-6 md:p-8 relative overflow-hidden flex flex-col">
       
       {/* Background Decor */}
@@ -106,9 +104,13 @@ export default function ControlPanel({
         </label>
         <div className="relative">
           <input 
-            type="number" value={totalWeight}
+            type="number" 
+            value={totalWeight === 0 ? '' : totalWeight} 
+            onFocus={(e) => e.target.select()}
             onChange={(e) => onWeightChange(parseFloat(e.target.value) || 0)}
-            className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-lg font-bold text-slate-800 placeholder-slate-300 transition-all shadow-sm"
+            placeholder="0"
+            className="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-lg font-bold text-slate-800 placeholder-slate-300 transition-all shadow-sm
+            [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
         </div>
       </div>
@@ -119,27 +121,36 @@ export default function ControlPanel({
             <FlaskConical size={14} /> 4. Target Recipe (%)
           </label>
           <div className="grid grid-cols-4 gap-3">
-            {['N', 'P', 'K', 'Filler'].map((key) => (
-              <div key={key} className="flex flex-col items-center bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:border-blue-200 transition-colors group">
-                <span className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wide group-hover:text-blue-500 transition-colors">
-                  {key === 'Filler' ? 'FILL' : key}
-                </span>
-                <input 
-                  type="number"
-                  value={targets[key as keyof typeof targets]}
-                  onChange={(e) => onTargetChange(key, parseFloat(e.target.value) || 0)}
-                  className="w-full text-center bg-transparent text-slate-800 font-bold text-sm outline-none p-0 focus:text-blue-600"
-                />
-              </div>
-            ))}
+            {['N', 'P', 'K', 'Filler'].map((key) => {
+              const val = targets[key as keyof typeof targets];
+              return (
+                <div 
+                  key={key} 
+                  className="flex flex-col items-center p-2 rounded-xl border transition-colors group bg-white border-slate-100 shadow-sm hover:border-blue-200 cursor-text"
+                >
+                  <span className="text-[10px] font-bold mb-1 uppercase tracking-wide transition-colors text-slate-400 group-hover:text-blue-500">
+                    {key === 'Filler' ? 'FILL' : key}
+                  </span>
+                  
+                  {/* ✅ ปลดล็อค: ทุกช่องพิมพ์ได้หมด */}
+                  <input 
+                    type="number"
+                    value={val === 0 ? '' : val} 
+                    onFocus={(e) => e.target.select()} 
+                    placeholder="0"
+                    onChange={(e) => onTargetChange(key, parseFloat(e.target.value) || 0)}
+                    className="w-full text-center bg-transparent font-bold text-sm outline-none p-0 
+                      [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none
+                      text-slate-800 focus:text-blue-600"
+                  />
+                </div>
+              );
+            })}
           </div>
       </div>
 
-      {/* PIE CHART SECTION */}
-      {/* ✅ แก้ไข: เอา mt-auto ออก และเปลี่ยนเป็น mt-4 แทน เพื่อให้กราฟขยับขึ้นมาต่อจากเนื้อหาทันที */}
+      {/* PIE CHART */}
       <div className="mt-4 pt-6 border-t border-slate-100 flex items-center justify-between gap-4">
-         
-         {/* Legend */}
          <div className="flex flex-col gap-2 min-w-[80px]">
             {legendItems.map((item) => (
               <div key={item.label} className="flex items-center gap-2">
@@ -149,17 +160,13 @@ export default function ControlPanel({
             ))}
          </div>
 
-         {/* Chart */}
          <div className="relative h-32 w-32 flex-shrink-0">
            <Doughnut 
              data={pieChartData} 
              options={{ 
                 responsive: true, 
                 maintainAspectRatio: false, 
-                plugins: { 
-                  legend: { display: false },
-                  tooltip: { enabled: false } 
-                }, 
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }, 
                 cutout: '75%' 
              }} 
            />
@@ -168,7 +175,6 @@ export default function ControlPanel({
              <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">GRAMS</span>
            </div>
          </div>
-
       </div>
     </div>
   );
