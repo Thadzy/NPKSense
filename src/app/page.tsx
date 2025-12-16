@@ -6,6 +6,7 @@ import {
 } from "chart.js";
 import { useSearchParams } from "next/navigation";
 import { ArrowDown, CheckCircle2, Zap, Microscope, Calculator as CalcIcon } from "lucide-react"; 
+// ตรวจสอบว่า Component เหล่านี้มีอยู่จริงในโฟลเดอร์ components
 import ControlPanel from "@/components/ControlPanel";
 import ImagePreview from "@/components/ImagePreview";
 import StatCard from "@/components/StatCard";
@@ -13,11 +14,11 @@ import PerspectiveCropper from "@/components/PerspectiveCropper";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
-// ⚠️ Confirm API URL (Hugging Face)
-const API_URL = "https://thadzy-npksense.hf.space/analyze_interactive";
+// ✅ Confirm API URL (Localhost) - ถูกต้องแล้วครับ
+const API_URL = "http://localhost:8000/analyze_interactive";
 
 // =========================================
-// 🎨 SUB-COMPONENTS
+// 🎨 SUB-COMPONENTS (ใส่ไว้ในไฟล์เดียวกันได้เลย เพื่อความสะดวก)
 // =========================================
 function FeatureCard({ icon, title, desc }: any) {
   return (
@@ -51,7 +52,7 @@ function GuideStep({ step, title, desc }: any) {
 }
 
 // =========================================
-// 🧩 MAIN LOGIC (Separated for Suspense)
+// 🧩 MAIN LOGIC
 // =========================================
 function DashboardContent() {
   const searchParams = useSearchParams();
@@ -76,6 +77,7 @@ function DashboardContent() {
   
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Load Params from URL (Optional)
   useEffect(() => {
     const nParam = searchParams.get('n');
     const pParam = searchParams.get('p');
@@ -104,7 +106,7 @@ function DashboardContent() {
         if (ev.target?.result) {
           const imgUrl = ev.target.result as string;
           setOriginalImage(imgUrl);
-          setIsCropping(true); 
+          setIsCropping(true); // Start cropping flow immediately
           setProcessedImage(null);
           setCroppedRawImage(null);
           setCurrentDisplayImage(null);
@@ -120,6 +122,7 @@ function DashboardContent() {
       setIsCropping(false);
       setLastCropPoints(points);
       if (file) {
+          // Send to API with crop points
           analyzeImage(file, threshold, true, points);
           scrollToAnalyzer();
       }
@@ -142,12 +145,12 @@ function DashboardContent() {
       const data = await res.json();
 
       const procImg = `data:image/jpeg;base64,${data.image_b64}`;
-      const rawCrop = `data:image/jpeg;base64,${data.raw_cropped_b64}`;
+      const rawCrop = data.raw_cropped_b64 ? `data:image/jpeg;base64,${data.raw_cropped_b64}` : null;
 
       setProcessedImage(procImg);
-      setCroppedRawImage(rawCrop);
+      if(rawCrop) setCroppedRawImage(rawCrop);
       setCurrentDisplayImage(procImg);
-      setMassScores(data.areas);
+      setMassScores(data.areas); // Values from backend (Weighted Nutrient Mass)
 
       if (isFirstLoad && data.histogram) {
         setHistData(data.histogram);
@@ -156,7 +159,7 @@ function DashboardContent() {
       }
     } catch (err) {
       console.error(err);
-      alert("Backend connection failed. Please check Hugging Face status.");
+      alert("Backend connection failed. Please check if Python server is running.");
     } finally {
       setLoading(false);
     }
@@ -175,8 +178,11 @@ function DashboardContent() {
     if (section) section.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // --- CALCULATION DISPLAY LOGIC ---
   const totalScore = Object.values(massScores).reduce((a, b) => a + b, 0);
+  // Scale score to match Total Weight input
   const factor = totalScore > 0 ? (totalWeight / totalScore) : 0;
+  
   const finalWeights = {
     N: massScores.N * factor,
     P: massScores.P * factor,
@@ -203,6 +209,7 @@ function DashboardContent() {
   return (
     <div className="bg-white font-sans selection:bg-blue-100">
       
+      {/* CROPPER MODAL */}
       {isCropping && originalImage && (
         <PerspectiveCropper 
             imageSrc={originalImage} 
@@ -214,18 +221,16 @@ function DashboardContent() {
       {/* 🔵 HERO SECTION */}
       <section className="relative min-h-[90vh] flex flex-col items-center justify-center px-4 overflow-hidden py-20">
         
-        {/* --- ✨ BACKGROUND LAYER --- */}
+        {/* BACKGROUND */}
         <div className="absolute inset-0 w-full h-full pointer-events-none">
             <div className="absolute inset-0 bg-white"></div>
             <div className="absolute -top-[10%] -right-[10%] w-[70vw] h-[70vw] rounded-full bg-gradient-to-b from-cyan-100 via-blue-200 to-transparent opacity-70 blur-[80px]"></div>
             <div className="absolute top-[0%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-transparent opacity-70 blur-[100px]"></div>
             <div className="absolute -bottom-[20%] left-[20%] w-[60vw] h-[60vw] rounded-full bg-blue-50 opacity-80 blur-[120px]"></div>
-            <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.02]"></div>
         </div>
 
-        {/* --- 📝 CONTENT LAYER --- */}
-        <div className="relative z-10 text-center max-w-5xl mx-auto space-y-10 animate-fade-in-up">
-          
+        {/* HERO CONTENT */}
+        <div className="relative z-10 text-center max-w-5xl mx-auto space-y-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border border-blue-100 shadow-sm text-sm font-semibold text-blue-700 mb-4">
             <span className="flex h-2 w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
@@ -234,69 +239,34 @@ function DashboardContent() {
             AI-Powered Fertilizer Analysis 2.0
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-black text-slate-900 tracking-tight leading-tight drop-shadow-sm">
+          <h1 className="text-5xl md:text-7xl font-black text-slate-900 tracking-tight leading-tight">
             Precision Farming <br/>
-            Starts with <span className="text-blue-600 relative inline-block">
-              Perfect NPK.
-              <svg className="absolute w-full h-3 -bottom-1 left-0 text-blue-200 -z-10" viewBox="0 0 100 10" preserveAspectRatio="none">
-                 <path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="8" fill="none" />
-              </svg>
-            </span>
+            Starts with <span className="text-blue-600">Perfect NPK.</span>
           </h1>
 
-          <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed font-medium">
-            Stop guessing. Use computer vision and physics engine to analyze fertilizer composition instantly. 
-            Calibrate your mix with scientific accuracy.
-          </p>
-
           <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-            <button 
-              onClick={scrollToAnalyzer}
-              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-95 flex items-center justify-center gap-2 text-lg"
-            >
+            <button onClick={scrollToAnalyzer} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-xl flex items-center justify-center gap-2 text-lg">
               <Microscope size={24} /> Start Analyzing
             </button>
-            <a 
-              href="/calculator"
-              className="px-8 py-4 bg-white text-slate-700 border border-slate-200 font-bold rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2 text-lg shadow-lg shadow-slate-200/50 hover:border-slate-300"
-            >
-              <CalcIcon size={24} className="text-slate-500" /> Calculator
-            </a>
           </div>
 
-          {/* Cards Section: Grid */}
+          {/* Feature Cards */}
           <div className="pt-16 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <FeatureCard icon={<Zap className="w-6 h-6" />} title="Instant AI Analysis" desc="Deep learning model detects N, P, K particles in milliseconds with high precision." />
-            <FeatureCard icon={<CheckCircle2 className="w-6 h-6 text-emerald-500" />} title="Physics Engine" desc="Calculates weight based on 3D volume & density estimation, not just 2D area." />
-            <FeatureCard icon={<CalcIcon className="w-6 h-6 text-purple-500" />} title="Reverse Recipe" desc="Input your target formula (e.g., 15-15-15), we calculate the exact mixing ratio." />
+            <FeatureCard icon={<Zap className="w-6 h-6" />} title="Instant AI Analysis" desc="Detects N, P, K particles in milliseconds." />
+            <FeatureCard icon={<CheckCircle2 className="w-6 h-6 text-emerald-500" />} title="Physics Engine" desc="Calculates weight based on volume & density." />
+            <FeatureCard icon={<CalcIcon className="w-6 h-6 text-purple-500" />} title="Reverse Recipe" desc="Reverse engineering your mix recipe." />
           </div>
-
-          {/* ✅ How it works Section */}
-          <div className="pt-16 mt-16 w-full border-t border-slate-100">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">How to take a perfect photo</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-               <GuideStep step="1" title="Solid Background" desc="Use plain paper (A4). Avoid patterns." />
-               <GuideStep step="2" title="Spread Evenly" desc="Don't pile up. Single layer only." />
-               <GuideStep step="3" title="Good Lighting" desc="Bright light, no harsh shadows." />
-               <GuideStep step="4" title="Top-Down View" desc="Hold camera parallel to the surface." />
-            </div>
-          </div>
-        </div>
-        
-        {/* Scroll Indicator */}
-        <div className="absolute bottom-4 animate-bounce cursor-pointer text-slate-400 hover:text-blue-600 transition-colors z-20" onClick={scrollToAnalyzer}>
-          <ArrowDown size={32} />
         </div>
       </section>
 
       {/* 🛠️ ANALYZER SECTION */}
-      <div id="analyzer-section" className="min-h-screen py-20 bg-white border-t border-slate-100 relative z-20 shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.05)]">
+      <div id="analyzer-section" className="min-h-screen py-20 bg-white border-t border-slate-100 relative z-20">
         <div className="max-w-7xl mx-auto px-4 lg:px-8">
            <div className="mb-12 text-center">
               <h2 className="text-3xl font-black text-slate-900">Analysis Dashboard</h2>
-              <p className="text-slate-500 mt-2">Upload an image or check your current mix</p>
            </div>
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* LEFT CONTROL */}
             <div className="lg:col-span-4 space-y-6">
               <ControlPanel 
                 file={file} threshold={threshold} totalWeight={totalWeight} targets={targets}
@@ -305,9 +275,10 @@ function DashboardContent() {
                 onSliderChange={handleSliderChange}
                 onAutoClick={() => { setThreshold(autoThreshold); if (file) analyzeImage(file, autoThreshold, false); }}
                 onWeightChange={setTotalWeight}
-                onTargetChange={(key, val) => setTargets({...targets, [key]: val})}
+                onTargetChange={(key: any, val: any) => setTargets({...targets, [key]: val})}
               />
             </div>
+            {/* RIGHT DISPLAY */}
             <div className="lg:col-span-8 space-y-6 flex flex-col h-full">
               <ImagePreview 
                 loading={loading}
@@ -334,7 +305,7 @@ function DashboardContent() {
 }
 
 // =========================================
-// 🚀 EXPORT (Wrapper)
+// 🚀 EXPORT (Wrapper for Suspense)
 // =========================================
 export default function NPKSenseDashboard() {
   return (
